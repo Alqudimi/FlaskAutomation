@@ -117,13 +117,32 @@ def extract_features():
                 for kp in result.keypoints
             ]
         
+        # Convert metadata to serializable format
+        serializable_metadata = {}
+        for key, value in result.metadata.items():
+            if isinstance(value, np.ndarray):
+                serializable_metadata[key] = value.tolist()
+            elif isinstance(value, dict):
+                # Handle nested dictionaries - skip complex objects
+                nested_dict = {}
+                for k, v in value.items():
+                    if isinstance(v, (str, int, float, bool)):
+                        nested_dict[k] = v
+                    elif isinstance(v, np.ndarray):
+                        nested_dict[k] = v.tolist()
+                    # Skip other complex objects like KeyPoint
+                serializable_metadata[key] = nested_dict
+            elif isinstance(value, (str, int, float, bool)):
+                serializable_metadata[key] = value
+            # Skip other complex objects
+        
         return jsonify({
             'success': True,
             'result_image': result_image_base64,
             'keypoints': keypoints_data,
             'descriptors': descriptors_list,
             'features': result.features,
-            'metadata': result.metadata
+            'metadata': serializable_metadata
         })
         
     except Exception as e:
@@ -148,10 +167,19 @@ def apply_filter():
         # Convert result image to base64
         result_image_base64 = image_to_base64(result_image)
         
+        # Convert history to serializable format
+        history = []
+        for filter_type, params in processor.get_history():
+            if hasattr(filter_type, 'value'):
+                filter_name = filter_type.value
+            else:
+                filter_name = str(filter_type)
+            history.append({'filter_type': filter_name, 'parameters': params})
+        
         return jsonify({
             'success': True,
             'result_image': result_image_base64,
-            'history': processor.get_history()
+            'history': history
         })
         
     except Exception as e:
@@ -261,10 +289,36 @@ def apply_transformation():
         result_image = transformer.get_current_image()
         result_image_base64 = image_to_base64(result_image)
         
+        # Convert history to serializable format  
+        history = []
+        for item in transformer.get_history():
+            if isinstance(item, dict):
+                # Handle dict format
+                history_entry = {'transformation_type': str(item.get('type', '')), 'parameters': {}}
+                if 'parameters' in item:
+                    for key, value in item['parameters'].items():
+                        if isinstance(value, np.ndarray):
+                            history_entry['parameters'][key] = value.tolist()
+                        elif isinstance(value, (str, int, float, bool)):
+                            history_entry['parameters'][key] = value
+                        # Skip complex objects
+                history.append(history_entry)
+            elif len(item) >= 2:
+                # Handle tuple format
+                transform_type, params = item[0], item[1] if len(item) > 1 else {}
+                history_entry = {'transformation_type': str(transform_type), 'parameters': {}}
+                if isinstance(params, dict):
+                    for key, value in params.items():
+                        if isinstance(value, np.ndarray):
+                            history_entry['parameters'][key] = value.tolist()
+                        elif isinstance(value, (str, int, float, bool)):
+                            history_entry['parameters'][key] = value
+                history.append(history_entry)
+        
         return jsonify({
             'success': True,
             'result_image': result_image_base64,
-            'history': transformer.get_history()
+            'history': history
         })
         
     except Exception as e:
